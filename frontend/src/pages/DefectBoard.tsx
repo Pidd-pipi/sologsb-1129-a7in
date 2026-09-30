@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import DefectBadge from '../components/common/DefectBadge';
 import EmptyState from '../components/common/EmptyState';
+import SnapshotDiffBadge from '../components/common/SnapshotDiffBadge';
 import { DRAFT_KEYS, useLocalDraft } from '../hooks/useLocalDraft';
 import { useMatrixStore } from '../stores/matrixStore';
 import { useUiStore } from '../stores/uiStore';
@@ -15,6 +16,7 @@ import {
   type DefectType,
 } from '../types/defect';
 import { MATRIX_AVAILABILITIES, type MatrixAvailability } from '../types/matrix';
+import { defectDiffFields } from '../utils/correction';
 import { countBy, dash, formatDate, todayStr } from '../utils/format';
 
 interface DefectFormState {
@@ -395,14 +397,22 @@ export default function DefectBoard() {
                     </td>
                   </tr>
                 ) : (
-                  sortedDefects.map((d) => (
-                    <tr key={d.id} data-testid={`defect-row-${d.id}`}>
-                      <td className="mt-td">
-                        <Link className="font-song text-base text-ink hover:text-seal" to={`/matrices/${d.matrixId}`}>
-                          {d.character}
-                        </Link>
-                        <div className="text-[11px] text-ink-mute">{dash(d.matrixCode)}</div>
-                      </td>
+                  sortedDefects.map((d) => {
+                    const linked = matrices.find((m) => m.id === d.matrixId);
+                    const diffFields = defectDiffFields(d, linked);
+                    return (
+                      <tr key={d.id} data-testid={`defect-row-${d.id}`}>
+                        <td className="mt-td">
+                          <Link className="font-song text-base text-ink hover:text-seal" to={`/matrices/${d.matrixId}`}>
+                            {d.snapshot?.character ?? d.character}
+                          </Link>
+                          <div className="text-[11px] text-ink-mute">{dash(d.snapshot?.matrixCode ?? d.matrixCode)}</div>
+                          {diffFields.length > 0 ? (
+                            <span className="mt-1.5 inline-block">
+                              <SnapshotDiffBadge fields={diffFields} testId={`defect-row-diff-${d.id}`} />
+                            </span>
+                          ) : null}
+                        </td>
                       <td className="mt-td">
                         <DefectBadge
                           type={d.defectType}
@@ -415,7 +425,8 @@ export default function DefectBoard() {
                       <td className="mt-td">{d.handling}</td>
                       <td className="mt-td">{dash(d.operator)}</td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

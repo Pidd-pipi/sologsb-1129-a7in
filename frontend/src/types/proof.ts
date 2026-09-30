@@ -32,6 +32,16 @@ export interface ProofRecord {
   /** 试印日期 YYYY-MM-DD */
   proofDate: string;
   note: string;
+  /**
+   * 登记时字模档案快照：样张保留当时字面，不随后续档案更正改写。
+   * v4 升级时仅按该样张自身的 targetRef（当时试印的字符）回填 character；
+   * matrixCode / font 在旧版本中未登记，留空而不是拿现行值顶替。
+   */
+  snapshot?: {
+    character: string;
+    matrixCode: string;
+    font: string;
+  };
   createdAt: string;
 }
 

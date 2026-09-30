@@ -69,6 +69,11 @@ export interface TypeMatrix {
   availability: MatrixAvailability;
   /** 登记备注 */
   note: string;
+  /**
+   * 档案版本号：每次档案更正 +1，用于两个标签页同时更正同一枚时的乐观并发校验。
+   * 历史数据在 v4 升级时补 1。
+   */
+  rev: number;
   createdAt: string;
   updatedAt: string;
 }

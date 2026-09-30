@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import EmptyState from '../components/common/EmptyState';
+import SnapshotDiffBadge from '../components/common/SnapshotDiffBadge';
 import { DRAFT_KEYS, useLocalDraft } from '../hooks/useLocalDraft';
 import { useMatrixStore } from '../stores/matrixStore';
 import { useUiStore } from '../stores/uiStore';
@@ -14,6 +15,7 @@ import {
   type ProofInput,
   type ProofTargetKind,
 } from '../types/proof';
+import { proofDiffFields } from '../utils/correction';
 import { dash, formatDate, suggestSampleNo, todayStr } from '../utils/format';
 
 interface ProofFormState {
@@ -61,6 +63,8 @@ export default function ProofList() {
   }, [draft.matrixId, matrices, patch]);
 
   const selectedMatrix = matrices.find((m) => m.id === draft.matrixId);
+
+  const matrixById = useMemo(() => new Map(matrices.map((m) => [m.id, m])), [matrices]);
 
   useEffect(() => {
     if (draft.targetKind === '字符' && selectedMatrix) {
@@ -443,12 +447,20 @@ export default function ProofList() {
                   </td>
                 </tr>
               ) : (
-                sortedProofs.map((p) => (
-                  <tr key={p.id} data-testid={`proof-row-${p.id}`}>
-                    <td className="mt-td font-song text-ink">{p.sampleNo}</td>
-                    <td className="mt-td">
-                      {p.targetKind} · {p.targetRef}
-                    </td>
+                sortedProofs.map((p) => {
+                  const linked = p.matrixId ? matrixById.get(p.matrixId) : undefined;
+                  const diffFields = proofDiffFields(p, linked);
+                  return (
+                    <tr key={p.id} data-testid={`proof-row-${p.id}`}>
+                      <td className="mt-td font-song text-ink">{p.sampleNo}</td>
+                      <td className="mt-td">
+                        {p.targetKind} · {p.targetRef}
+                        {diffFields.length > 0 ? (
+                          <span className="mt-2 block">
+                            <SnapshotDiffBadge fields={diffFields} testId={`proof-row-diff-${p.id}`} />
+                          </span>
+                        ) : null}
+                      </td>
                     <td className="mt-td">
                       {p.pressureKg} kg · {p.ink}
                     </td>
@@ -481,7 +493,8 @@ export default function ProofList() {
                       )}
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

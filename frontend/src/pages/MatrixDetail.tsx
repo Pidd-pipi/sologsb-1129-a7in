@@ -4,6 +4,7 @@ import DefectBadge from '../components/common/DefectBadge';
 import EmptyState from '../components/common/EmptyState';
 import LayoutGrid from '../components/common/LayoutGrid';
 import MatrixCell from '../components/common/MatrixCell';
+import SnapshotDiffBadge from '../components/common/SnapshotDiffBadge';
 import { useMatrixStore } from '../stores/matrixStore';
 import { findCaseHolding, useCaseStore } from '../stores/caseStore';
 import { useUiStore } from '../stores/uiStore';
@@ -19,6 +20,7 @@ import {
 import { CLARITY_LEVELS, IMPRESSION_RANGE, PRESSURE_RANGE } from '../types/proof';
 import type { ClarityLevel } from '../types/proof';
 import { pinyinOf, radicalOf, strokesOf } from '../utils/charIndex';
+import { defectDiffFields, proofDiffFields } from '../utils/correction';
 import { dash, formatDate, formatStamp, suggestSampleNo, todayStr } from '../utils/format';
 import { rcKey } from '../utils/layout';
 
@@ -42,6 +44,7 @@ export default function MatrixDetail() {
   const matrices = useMatrixStore((s) => s.matrices);
   const defects = useMatrixStore((s) => s.defects);
   const proofs = useMatrixStore((s) => s.proofs);
+  const corrections = useMatrixStore((s) => s.corrections);
   const loaded = useMatrixStore((s) => s.loaded);
   const updateMatrix = useMatrixStore((s) => s.updateMatrix);
   const addDefect = useMatrixStore((s) => s.addDefect);
@@ -59,6 +62,13 @@ export default function MatrixDetail() {
   const matrixProofs = useMemo(
     () => proofs.filter((p) => p.matrixId === id).sort((a, b) => (a.proofDate < b.proofDate ? 1 : -1)),
     [proofs, id],
+  );
+  const matrixCorrections = useMemo(
+    () =>
+      corrections
+        .filter((c) => c.matrixId === id)
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    [corrections, id],
   );
   const holdings = useMemo(() => findCaseHolding(cases, id), [cases, id]);
 
@@ -226,6 +236,16 @@ export default function MatrixDetail() {
           <span className="mt-chip" data-testid="detail-availability">
             当前状态：{matrix.availability}
           </span>
+          <span className="mt-chip border-ink/20" data-testid="detail-rev">
+            第 {matrix.rev} 版
+          </span>
+          <Link
+            className="mt-btn mt-btn-primary"
+            to={`/matrices/${matrix.id}/correct`}
+            data-testid="goto-correction"
+          >
+            档案更正（编号 / 字符 / 字体）
+          </Link>
           {matrix.availability !== '可用' ? (
             <button type="button" className="mt-btn mt-btn-primary" data-testid="repair-btn" onClick={handleRepair}>
               补刻完成，恢复可用
@@ -392,22 +412,34 @@ export default function MatrixDetail() {
             {matrixDefects.length === 0 ? (
               <li className="px-4 py-4 text-xs text-ink-mute">暂无缺损记录，字面状态良好。</li>
             ) : (
-              matrixDefects.map((d) => (
-                <li key={d.id} className="space-y-1 px-4 py-3" data-testid={`defect-item-${d.id}`}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <DefectBadge
-                      type={d.defectType}
-                      severity={d.severity}
-                      availability={d.availability}
-                      testId={`detail-defect-badge-${d.id}`}
-                    />
-                    <span className="text-xs text-ink-mute">{formatDate(d.foundDate)}</span>
-                    <span className="text-xs text-ink-mute">登记人 {dash(d.operator)}</span>
-                  </div>
-                  <p className="text-xs leading-relaxed text-ink-soft">{d.handling}</p>
-                  {d.note ? <p className="text-[11px] text-ink-mute">备注：{d.note}</p> : null}
-                </li>
-              ))
+              matrixDefects.map((d) => {
+                const diffFields = defectDiffFields(d, matrix);
+                return (
+                  <li key={d.id} className="space-y-1 px-4 py-3" data-testid={`defect-item-${d.id}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <DefectBadge
+                        type={d.defectType}
+                        severity={d.severity}
+                        availability={d.availability}
+                        testId={`detail-defect-badge-${d.id}`}
+                      />
+                      <span className="text-xs text-ink-mute">{formatDate(d.foundDate)}</span>
+                      <span className="text-xs text-ink-mute">登记人 {dash(d.operator)}</span>
+                      {diffFields.length > 0 ? (
+                        <SnapshotDiffBadge
+                          fields={diffFields}
+                          title={`登记时为「${d.snapshot?.character ?? d.character}」· ${dash(
+                            d.snapshot?.matrixCode ?? d.matrixCode,
+                          )}，现行档案已不同`}
+                          testId={`defect-diff-${d.id}`}
+                        />
+                      ) : null}
+                    </div>
+                    <p className="text-xs leading-relaxed text-ink-soft">{d.handling}</p>
+                    {d.note ? <p className="text-[11px] text-ink-mute">备注：{d.note}</p> : null}
+                  </li>
+                );
+              })
             )}
           </ul>
           <form className="space-y-3 border-t border-paper-line px-4 py-3" onSubmit={handleAddDefect} data-testid="inline-defect-form">
@@ -528,19 +560,35 @@ export default function MatrixDetail() {
             {matrixProofs.length === 0 ? (
               <li className="px-4 py-4 text-xs text-ink-mute">暂无试印记录。</li>
             ) : (
-              matrixProofs.map((p) => (
-                <li key={p.id} className="space-y-1 px-4 py-3" data-testid={`proof-item-${p.id}`}>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-ink-soft">
-                    <span className="font-song text-sm text-ink">{p.sampleNo}</span>
-                    <span className="mt-chip">{p.clarity}</span>
-                    <span className="text-ink-mute">{formatDate(p.proofDate)}</span>
-                  </div>
-                  <p className="text-xs text-ink-soft">
-                    压力 {p.pressureKg} kg · 用墨 {p.ink} · 印次 {p.impressions}
-                  </p>
-                  {p.note ? <p className="text-[11px] text-ink-mute">备注：{p.note}</p> : null}
-                </li>
-              ))
+              matrixProofs.map((p) => {
+                const diffFields = proofDiffFields(p, matrix);
+                const thenCharacter =
+                  p.snapshot?.character || (p.targetKind === '字符' ? p.targetRef : '') || '';
+                return (
+                  <li key={p.id} className="space-y-1 px-4 py-3" data-testid={`proof-item-${p.id}`}>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-ink-soft">
+                      <span className="font-song text-sm text-ink">{p.sampleNo}</span>
+                      <span className="mt-chip">{p.clarity}</span>
+                      <span className="text-ink-mute">{formatDate(p.proofDate)}</span>
+                      {thenCharacter ? (
+                        <span className="mt-chip border-ink/20" data-testid={`proof-snapshot-${p.id}`}>
+                          当时字面 <span className="font-song text-ink">{thenCharacter}</span>
+                        </span>
+                      ) : null}
+                      {diffFields.length > 0 ? (
+                        <SnapshotDiffBadge
+                          fields={diffFields}
+                          testId={`proof-diff-${p.id}`}
+                        />
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-ink-soft">
+                      压力 {p.pressureKg} kg · 用墨 {p.ink} · 印次 {p.impressions}
+                    </p>
+                    {p.note ? <p className="text-[11px] text-ink-mute">备注：{p.note}</p> : null}
+                  </li>
+                );
+              })
             )}
           </ul>
           <form className="space-y-3 border-t border-paper-line px-4 py-3" onSubmit={handleAddProof} data-testid="inline-proof-form">
@@ -642,6 +690,59 @@ export default function MatrixDetail() {
             </button>
           </form>
         </div>
+      </section>
+
+      <section className="mt-panel" data-testid="correction-history-panel">
+        <div className="mt-panel-head">
+          <h3 className="font-song text-sm font-semibold text-ink">档案更正留痕</h3>
+          <span className="mt-sub">
+            共 {matrixCorrections.length} 次 · 当前第 {matrix.rev} 版
+          </span>
+        </div>
+        {matrixCorrections.length === 0 ? (
+          <p className="px-4 py-3 text-xs text-ink-mute">尚未更正过，档案保持第 1 版登记内容。</p>
+        ) : (
+          <ul className="divide-y divide-paper-line" data-testid="correction-history">
+            {matrixCorrections.map((c) => (
+              <li key={c.id} className="space-y-1.5 px-4 py-3" data-testid={`correction-item-${c.id}`}>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="mt-chip">
+                    第 {c.baseRev} 版 → 第 {c.nextRev} 版
+                  </span>
+                  <span className="text-ink-mute">{formatStamp(c.createdAt)}</span>
+                  <span className="text-ink-mute">经办 {dash(c.operator)}</span>
+                </div>
+                <p className="flex flex-wrap items-center gap-1.5 text-xs">
+                  {c.changes.map((chg) => (
+                    <span
+                      key={chg.field}
+                      className="inline-flex items-center gap-1 rounded border border-paper-line bg-paper/50 px-1.5 py-0.5"
+                    >
+                      {chg.label}
+                      <span className="text-ink-mute line-through">{dash(chg.before)}</span>
+                      <span aria-hidden>→</span>
+                      <span className="font-song text-seal">{chg.after}</span>
+                    </span>
+                  ))}
+                </p>
+                <p className="text-[11px] text-ink-mute">
+                  原因：{dash(c.reason)} · 联动格位 {c.affectedSlots.length} 处 · 旧样张 {c.proofSampleNos.length}{' '}
+                  张保留当时字面
+                </p>
+                {c.affectedSlots.length > 0 ? (
+                  <p className="text-[11px] text-ink-mute" data-testid={`correction-slots-${c.id}`}>
+                    {c.affectedSlots
+                      .map(
+                        (s) =>
+                          `${s.caseCode} ${String.fromCharCode(65 + s.row)}${s.col + 1}「${s.before}→${s.after}」`,
+                      )
+                      .join('、')}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <p className="text-[11px] text-ink-mute">

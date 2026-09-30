@@ -3,6 +3,7 @@ import AppShell from '../layouts/AppShell';
 import Overview from '../pages/Overview';
 import MatrixNew from '../pages/MatrixNew';
 import MatrixDetail from '../pages/MatrixDetail';
+import MatrixCorrection from '../pages/MatrixCorrection';
 import CaseEditor from '../pages/CaseEditor';
 import DefectBoard from '../pages/DefectBoard';
 import ProofList from '../pages/ProofList';
@@ -15,6 +16,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Overview /> },
       { path: 'matrices/new', element: <MatrixNew /> },
       { path: 'matrices/:id', element: <MatrixDetail /> },
+      { path: 'matrices/:id/correct', element: <MatrixCorrection /> },
       { path: 'cases', element: <CaseEditor /> },
       { path: 'defects', element: <DefectBoard /> },
       { path: 'proofs', element: <ProofList /> },

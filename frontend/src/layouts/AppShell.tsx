@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useCaseStore } from '../stores/caseStore';
 import { useMatrixStore } from '../stores/matrixStore';
 import { useUiStore } from '../stores/uiStore';
+import { subscribeArchiveChanged } from '../utils/crossTab';
 
 const NAV = [
   { to: '/', label: '字模总览', testId: 'nav-overview', end: true },
@@ -37,6 +38,15 @@ export default function AppShell() {
     void loadMatrices();
     void loadCases();
   }, [loadMatrices, loadCases]);
+
+  // 其他标签页提交档案更正后，重读本机库最新档案（rev 乐观锁是防覆盖的主防线，
+  // 这里只让本标签页尽快看到「已到第 N 版」，便于馆员在提交前察觉差异）
+  useEffect(() => {
+    const unsubscribe = subscribeArchiveChanged(() => {
+      if (useMatrixStore.getState().loaded) void useMatrixStore.getState().refreshArchive();
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     if (!toast) return;

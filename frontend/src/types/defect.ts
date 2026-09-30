@@ -28,6 +28,14 @@ export interface DefectLog {
   /** 登记人 */
   operator: string;
   note: string;
+  /**
+   * 登记时字模档案快照：历史记录保留当时的登记值，不随后续档案更正改写。
+   * v4 升级时按该记录自身冗余的 character / matrixCode 回填（即原登记值，不用现行值顶替）。
+   */
+  snapshot?: {
+    character: string;
+    matrixCode: string;
+  };
   createdAt: string;
 }
 

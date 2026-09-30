@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type { CaseSlot, TypeCase } from '../types/case';
+import type { CorrectionLog } from '../types/correction';
 import type { DefectLog } from '../types/defect';
 import type { DefectSeverity, DefectType } from '../types/defect';
 import type { MatrixAvailability, MatrixFont, MatrixMaterial, TypeMatrix } from '../types/matrix';
@@ -15,12 +16,14 @@ export const DB_NAME = 'gbmovabletype-db';
  * v1 建 matrices
  * v2 加 cases 表与 matrixId 索引
  * v3 加 defects / proofs 表，并为停用字模回填缺损原因
+ * v4 加 corrections 表；字模加 rev 版本号；缺损 / 样张按【原登记值】回填登记时快照
  */
 class MovableTypeDb extends Dexie {
   matrices!: Table<TypeMatrix, string>;
   cases!: Table<TypeCase, string>;
   defects!: Table<DefectLog, string>;
   proofs!: Table<ProofRecord, string>;
+  corrections!: Table<CorrectionLog, string>;
 
   constructor() {
     super(DB_NAME);
@@ -75,6 +78,51 @@ class MovableTypeDb extends Dexie {
             operator: '系统迁移',
             note: '由 v2 → v3 升级自动回填',
             createdAt: new Date().toISOString(),
+          });
+        }
+      });
+    this.version(4)
+      .stores({
+        matrices: 'id, code, character, font, sizeName, material, availability',
+        cases: 'id, code, kind, workStation, *matrixId',
+        defects: 'id, matrixId, defectType, severity, availability, foundDate',
+        proofs: 'id, matrixId, sampleNo, clarity, proofDate',
+        corrections: 'id, matrixId, createdAt',
+      })
+      .upgrade(async (tx) => {
+        // v4：
+        // 1) 字模补 rev 版本号（历史档案视为第 1 版）
+        const matrixTable = tx.table<TypeMatrix, string>('matrices');
+        const matrices: TypeMatrix[] = await matrixTable.toArray();
+        for (const m of matrices) {
+          if (typeof m.rev !== 'number') await matrixTable.update(m.id, { rev: 1 });
+        }
+
+        // 2) 缺损记录按【该记录自身冗余的原登记值】回填快照，不读字模现行值
+        const defectTable = tx.table<DefectLog, string>('defects');
+        const defects: DefectLog[] = await defectTable.toArray();
+        for (const d of defects) {
+          if (d.snapshot) continue;
+          await defectTable.update(d.id, {
+            snapshot: {
+              character: d.character ?? '',
+              matrixCode: d.matrixCode ?? '',
+            },
+          });
+        }
+
+        // 3) 试印样张按【样张自己记录的当时字面 targetRef】回填字符快照；
+        //    编号 / 字体在旧版本中未随样张登记，留空，绝不拿现行值顶替。
+        const proofTable = tx.table<ProofRecord, string>('proofs');
+        const proofs: ProofRecord[] = await proofTable.toArray();
+        for (const p of proofs) {
+          if (p.snapshot) continue;
+          await proofTable.update(p.id, {
+            snapshot: {
+              character: p.targetKind === '字符' ? p.targetRef ?? '' : '',
+              matrixCode: '',
+              font: '',
+            },
           });
         }
       });
@@ -192,6 +240,7 @@ function buildSeed() {
   const matrices: TypeMatrix[] = SEED_MATRICES.map((m) => ({
     ...m,
     sizePt: ptOfSize(m.sizeName),
+    rev: 1,
     createdAt: now,
     updatedAt: now,
   }));
@@ -229,10 +278,28 @@ function buildSeed() {
       ...d,
       character: m?.character ?? '',
       matrixCode: m?.code ?? '',
+      snapshot: {
+        character: m?.character ?? '',
+        matrixCode: m?.code ?? '',
+      },
       createdAt: now,
     };
   });
-  const proofs: ProofRecord[] = SEED_PROOFS.map((p) => ({ ...p, createdAt: now }));
+  const proofs: ProofRecord[] = SEED_PROOFS.map((p) => {
+    const m = matrices.find((x) => x.id === p.matrixId);
+    return {
+      ...p,
+      snapshot:
+        p.targetKind === '字符'
+          ? {
+              character: p.targetRef,
+              matrixCode: m?.code ?? '',
+              font: m?.font ?? '',
+            }
+          : { character: '', matrixCode: '', font: '' },
+      createdAt: now,
+    };
+  });
   return { matrices, cases, defects, proofs };
 }
 

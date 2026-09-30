@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --port 21829"
+    "preview": "vite preview --port 21829",
+    "check:correction": "esbuild scripts/correction-check.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/correction-check.mjs --log-level=warning && node node_modules/.tmp/correction-check.mjs"
   },
   "dependencies": {
     "dexie": "^4.0.11",
@@ -21,6 +22,7 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "fake-indexeddb": "^6.2.5",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.7.3",
