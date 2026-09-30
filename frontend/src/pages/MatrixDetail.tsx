@@ -1,5 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import CorrectionTag from '../components/common/CorrectionTag';
+import CorrectionWizard from '../components/common/CorrectionWizard';
 import DefectBadge from '../components/common/DefectBadge';
 import EmptyState from '../components/common/EmptyState';
 import LayoutGrid from '../components/common/LayoutGrid';
@@ -18,6 +20,7 @@ import {
 } from '../types/matrix';
 import { CLARITY_LEVELS, IMPRESSION_RANGE, PRESSURE_RANGE } from '../types/proof';
 import type { ClarityLevel } from '../types/proof';
+import { isDefectDiff, isProofDiff, proofSnapshotOf } from '../utils/correction';
 import { pinyinOf, radicalOf, strokesOf } from '../utils/charIndex';
 import { dash, formatDate, formatStamp, suggestSampleNo, todayStr } from '../utils/format';
 import { rcKey } from '../utils/layout';
@@ -63,6 +66,7 @@ export default function MatrixDetail() {
   const holdings = useMemo(() => findCaseHolding(cases, id), [cases, id]);
 
   const [editing, setEditing] = useState(false);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     engraver: matrix?.engraver ?? '',
     note: matrix?.note ?? '',
@@ -246,6 +250,14 @@ export default function MatrixDetail() {
           >
             {editing ? '取消编辑' : '编辑基础信息'}
           </button>
+          <button
+            type="button"
+            className="mt-btn"
+            data-testid="correction-toggle"
+            onClick={() => setCorrectionOpen(true)}
+          >
+            档案更正
+          </button>
           {matrix.availability !== '可用' ? (
             <button type="button" className="mt-btn" data-testid="remove-matrix" onClick={handleRemove}>
               删除档案
@@ -403,8 +415,14 @@ export default function MatrixDetail() {
                     />
                     <span className="text-xs text-ink-mute">{formatDate(d.foundDate)}</span>
                     <span className="text-xs text-ink-mute">登记人 {dash(d.operator)}</span>
+                    {isDefectDiff(d, matrix) ? (
+                      <CorrectionTag before={d.character} after={matrix.character} />
+                    ) : null}
                   </div>
                   <p className="text-xs leading-relaxed text-ink-soft">{d.handling}</p>
+                  <p className="text-[11px] text-ink-mute">
+                    留存字面：{d.character} · {dash(d.matrixCode)}
+                  </p>
                   {d.note ? <p className="text-[11px] text-ink-mute">备注：{d.note}</p> : null}
                 </li>
               ))
@@ -528,19 +546,31 @@ export default function MatrixDetail() {
             {matrixProofs.length === 0 ? (
               <li className="px-4 py-4 text-xs text-ink-mute">暂无试印记录。</li>
             ) : (
-              matrixProofs.map((p) => (
-                <li key={p.id} className="space-y-1 px-4 py-3" data-testid={`proof-item-${p.id}`}>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-ink-soft">
-                    <span className="font-song text-sm text-ink">{p.sampleNo}</span>
-                    <span className="mt-chip">{p.clarity}</span>
-                    <span className="text-ink-mute">{formatDate(p.proofDate)}</span>
-                  </div>
-                  <p className="text-xs text-ink-soft">
-                    压力 {p.pressureKg} kg · 用墨 {p.ink} · 印次 {p.impressions}
-                  </p>
-                  {p.note ? <p className="text-[11px] text-ink-mute">备注：{p.note}</p> : null}
-                </li>
-              ))
+              matrixProofs.map((p) => {
+                const snap = proofSnapshotOf(p);
+                const diff = isProofDiff(p, matrix);
+                return (
+                  <li key={p.id} className="space-y-1 px-4 py-3" data-testid={`proof-item-${p.id}`}>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-ink-soft">
+                      <span className="font-song text-sm text-ink">{p.sampleNo}</span>
+                      <span className="mt-chip">{p.clarity}</span>
+                      <span className="text-ink-mute">{formatDate(p.proofDate)}</span>
+                      {diff ? (
+                        <CorrectionTag before={snap.character} after={matrix.character} />
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-ink-soft">
+                      压力 {p.pressureKg} kg · 用墨 {p.ink} · 印次 {p.impressions}
+                    </p>
+                    <p className="text-[11px] text-ink-mute">
+                      试印字面：
+                      <span className="font-song text-ink-soft">{snap.character || '—'}</span>
+                      {snap.code ? ` · ${snap.code}` : ''}
+                    </p>
+                    {p.note ? <p className="text-[11px] text-ink-mute">备注：{p.note}</p> : null}
+                  </li>
+                );
+              })
             )}
           </ul>
           <form className="space-y-3 border-t border-paper-line px-4 py-3" onSubmit={handleAddProof} data-testid="inline-proof-form">
@@ -648,6 +678,14 @@ export default function MatrixDetail() {
         字号档位共 {TYPE_SIZES.length} 档（初号 42pt 至八号 5pt）；材质枚举：
         {MATRIX_MATERIALS.join(' / ')}；字体枚举：{MATRIX_FONTS.join(' / ')}。
       </p>
+
+      {correctionOpen ? (
+        <CorrectionWizard
+          matrix={matrix}
+          onClose={() => setCorrectionOpen(false)}
+          onCorrected={() => setCorrectionOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

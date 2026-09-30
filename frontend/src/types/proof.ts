@@ -4,6 +4,19 @@
 export const PROOF_TARGET_KINDS = ['字符', '字盘'] as const;
 export type ProofTargetKind = (typeof PROOF_TARGET_KINDS)[number];
 
+/**
+ * 试印时字模的字面快照（字符 / 编号 / 字体）。
+ * 历史样张保留试印当时的字面，档案更正后据此标出差异，不随档案改写。
+ */
+export interface ProofSnapshot {
+  /** 试印时字模上的字符（当时字面） */
+  character: string;
+  /** 试印时字模编号 */
+  code: string;
+  /** 试印时字体 */
+  font: string;
+}
+
 /** 清晰度评价 */
 export const CLARITY_LEVELS = ['清晰', '偏淡', '糊版'] as const;
 export type ClarityLevel = (typeof CLARITY_LEVELS)[number];
@@ -20,6 +33,11 @@ export interface ProofRecord {
   targetRef: string;
   /** 关联字模 id（整盘试印时可为空） */
   matrixId: string;
+  /**
+   * 试印当时的字模字面快照。
+   * 档案更正后历史样张保留当时字面，并据此与现行档案标出差异；不随更正改写。
+   */
+  snapshot?: ProofSnapshot;
   /** 压力 kg */
   pressureKg: number;
   /** 用墨 */

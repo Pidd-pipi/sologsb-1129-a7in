@@ -5,7 +5,31 @@ import { shouldDisableMatrix } from '../types/defect';
 import type { MatrixInput, TypeMatrix } from '../types/matrix';
 import { ptOfSize } from '../types/matrix';
 import type { ProofInput, ProofRecord } from '../types/proof';
+import type { IdentityPatch } from '../utils/correction';
 import { makeId, toPlain, todayStr } from '../utils/format';
+import { useCaseStore } from './caseStore';
+
+/**
+ * 后提交并发冲突：两个标签页同时改同一枚字模时，后提交一方在写入前发现
+ * 档案已被改过，需先核对差异再决定是否覆盖。
+ */
+export class StaleMatrixError extends Error {
+  /** 库里当前的字模版本（先提交一方的结果） */
+  current: TypeMatrix;
+
+  constructor(current: TypeMatrix) {
+    super('该字模档案已被其他标签页修改，请核对差异后再提交');
+    this.name = 'StaleMatrixError';
+    this.current = current;
+  }
+}
+
+interface ApplyCorrectionOptions {
+  /** 打开更正 / 预演时字模的 updatedAt，用于并发核对 */
+  baseUpdatedAt?: string;
+  /** 核对差异后仍要覆盖先提交一方的结果 */
+  force?: boolean;
+}
 
 interface MatrixState {
   matrices: TypeMatrix[];
@@ -17,6 +41,12 @@ interface MatrixState {
   load: () => Promise<void>;
   createMatrix: (input: MatrixInput) => Promise<TypeMatrix>;
   updateMatrix: (id: string, patch: Partial<TypeMatrix>) => Promise<void>;
+  /** 档案更正：更新字模身份并同步当前格位，历史记录保留原样仅标差异 */
+  applyCorrection: (
+    id: string,
+    patch: IdentityPatch,
+    options?: ApplyCorrectionOptions,
+  ) => Promise<TypeMatrix>;
   removeMatrix: (id: string) => Promise<void>;
   addDefect: (input: DefectInput) => Promise<DefectLog>;
   repairMatrix: (matrixId: string, operator: string) => Promise<void>;
@@ -89,6 +119,48 @@ export const useMatrixStore = create<MatrixState>((set, get) => ({
         .map((m) => (m.id === id ? { ...m, ...next } : m))
         .sort(byUpdatedDesc),
     }));
+  },
+
+  applyCorrection: async (id, patch, options = {}) => {
+    const now = new Date().toISOString();
+    const changes: Partial<TypeMatrix> = { updatedAt: now };
+    if (patch.code !== undefined) changes.code = patch.code.trim();
+    if (patch.character !== undefined) changes.character = patch.character.trim();
+    if (patch.font !== undefined) changes.font = patch.font;
+
+    // 从库里读现行版本做并发核对：后提交一方若发现档案已被改过，先核对差异
+    const fresh = await db.matrices.get(id);
+    if (!fresh) throw new Error('未找到对应字模，无法更正');
+    if (!options.force && options.baseUpdatedAt && fresh.updatedAt !== options.baseUpdatedAt) {
+      throw new StaleMatrixError(fresh);
+    }
+
+    // 预演受影响的当前格位（历史缺损 / 试印记录不在此改写）
+    const allCases = await db.cases.toArray();
+    const affected = allCases
+      .map((c) => ({ c, touched: c.slots.filter((s) => s.matrixId === id) }))
+      .filter((x) => x.touched.length > 0);
+
+    await db.transaction('rw', db.matrices, db.cases, async () => {
+      await db.matrices.update(id, changes);
+      for (const { c } of affected) {
+        const nextSlots = c.slots.map((s) =>
+          s.matrixId === id && changes.character !== undefined
+            ? { ...s, character: changes.character }
+            : s,
+        );
+        await db.cases.update(c.id, { slots: toPlain(nextSlots), updatedAt: now });
+      }
+    });
+
+    set((s) => ({
+      matrices: s.matrices
+        .map((m) => (m.id === id ? { ...m, ...changes } : m))
+        .sort(byUpdatedDesc),
+    }));
+    // 字盘状态由 caseStore 统一维护，触发一次重载以同步格位字符
+    await useCaseStore.getState().load();
+    return { ...fresh, ...changes } as TypeMatrix;
   },
 
   removeMatrix: async (id) => {
@@ -166,6 +238,10 @@ export const useMatrixStore = create<MatrixState>((set, get) => ({
       targetKind: input.targetKind,
       targetRef: input.targetRef.trim(),
       matrixId: input.matrixId,
+      // 快照留痕：试印当时字模的字面，档案更正后样张仍保留当时字面
+      snapshot: matrix
+        ? { character: matrix.character, code: matrix.code, font: matrix.font }
+        : undefined,
       pressureKg: Number(input.pressureKg),
       ink: input.ink.trim(),
       impressions: Number(input.impressions),

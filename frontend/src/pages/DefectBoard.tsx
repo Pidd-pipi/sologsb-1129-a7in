@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import CorrectionTag from '../components/common/CorrectionTag';
 import DefectBadge from '../components/common/DefectBadge';
 import EmptyState from '../components/common/EmptyState';
 import { DRAFT_KEYS, useLocalDraft } from '../hooks/useLocalDraft';
@@ -15,6 +16,7 @@ import {
   type DefectType,
 } from '../types/defect';
 import { MATRIX_AVAILABILITIES, type MatrixAvailability } from '../types/matrix';
+import { isDefectDiff } from '../utils/correction';
 import { countBy, dash, formatDate, todayStr } from '../utils/format';
 
 interface DefectFormState {
@@ -395,27 +397,36 @@ export default function DefectBoard() {
                     </td>
                   </tr>
                 ) : (
-                  sortedDefects.map((d) => (
-                    <tr key={d.id} data-testid={`defect-row-${d.id}`}>
-                      <td className="mt-td">
-                        <Link className="font-song text-base text-ink hover:text-seal" to={`/matrices/${d.matrixId}`}>
-                          {d.character}
-                        </Link>
-                        <div className="text-[11px] text-ink-mute">{dash(d.matrixCode)}</div>
-                      </td>
-                      <td className="mt-td">
-                        <DefectBadge
-                          type={d.defectType}
-                          severity={d.severity}
-                          availability={d.availability}
-                          testId={`defect-row-badge-${d.id}`}
-                        />
-                      </td>
-                      <td className="mt-td">{formatDate(d.foundDate)}</td>
-                      <td className="mt-td">{d.handling}</td>
-                      <td className="mt-td">{dash(d.operator)}</td>
-                    </tr>
-                  ))
+                  sortedDefects.map((d) => {
+                    const matrix = matrices.find((m) => m.id === d.matrixId);
+                    const diff = isDefectDiff(d, matrix);
+                    return (
+                      <tr key={d.id} data-testid={`defect-row-${d.id}`}>
+                        <td className="mt-td">
+                          <Link className="font-song text-base text-ink hover:text-seal" to={`/matrices/${d.matrixId}`}>
+                            {d.character}
+                          </Link>
+                          <div className="text-[11px] text-ink-mute">{dash(d.matrixCode)}</div>
+                          {diff && matrix ? (
+                            <div className="mt-1">
+                              <CorrectionTag before={d.character} after={matrix.character} />
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="mt-td">
+                          <DefectBadge
+                            type={d.defectType}
+                            severity={d.severity}
+                            availability={d.availability}
+                            testId={`defect-row-badge-${d.id}`}
+                          />
+                        </td>
+                        <td className="mt-td">{formatDate(d.foundDate)}</td>
+                        <td className="mt-td">{d.handling}</td>
+                        <td className="mt-td">{dash(d.operator)}</td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

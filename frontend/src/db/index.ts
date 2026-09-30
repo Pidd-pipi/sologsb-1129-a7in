@@ -4,7 +4,7 @@ import type { DefectLog } from '../types/defect';
 import type { DefectSeverity, DefectType } from '../types/defect';
 import type { MatrixAvailability, MatrixFont, MatrixMaterial, TypeMatrix } from '../types/matrix';
 import { ptOfSize } from '../types/matrix';
-import type { ProofRecord } from '../types/proof';
+import type { ProofRecord, ProofSnapshot } from '../types/proof';
 import { matrixIdsOf } from '../utils/layout';
 import { suggestCaseCode, suggestMatrixCode, toPlain } from '../utils/format';
 
@@ -15,6 +15,7 @@ export const DB_NAME = 'gbmovabletype-db';
  * v1 建 matrices
  * v2 加 cases 表与 matrixId 索引
  * v3 加 defects / proofs 表，并为停用字模回填缺损原因
+ * v4 为历史试印记录回填字面快照（按原登记值，不拿字模现行值顶替）
  */
 class MovableTypeDb extends Dexie {
   matrices!: Table<TypeMatrix, string>;
@@ -76,6 +77,27 @@ class MovableTypeDb extends Dexie {
             note: '由 v2 → v3 升级自动回填',
             createdAt: new Date().toISOString(),
           });
+        }
+      });
+    this.version(4)
+      .stores({
+        matrices: 'id, code, character, font, sizeName, material, availability',
+        cases: 'id, code, kind, workStation, *matrixId',
+        defects: 'id, matrixId, defectType, severity, availability, foundDate',
+        proofs: 'id, matrixId, sampleNo, clarity, proofDate',
+      })
+      .upgrade(async (tx) => {
+        // v4：为历史试印记录回填字面快照。
+        // 按「原登记值」回填：字符试印取记录自身的 targetRef（登记时的字面），
+        // 不拿字模现行值顶替；编号 / 字体无历史留痕，留空待后续更正时补录。
+        const rows: ProofRecord[] = await tx.table('proofs').toArray();
+        for (const p of rows) {
+          if (p.snapshot) continue;
+          if (p.targetKind !== '字符') continue;
+          const character = (p.targetRef ?? '').trim();
+          if (!character) continue;
+          const snapshot: ProofSnapshot = { character, code: '', font: '' };
+          await tx.table('proofs').update(p.id, { snapshot });
         }
       });
   }
@@ -232,7 +254,15 @@ function buildSeed() {
       createdAt: now,
     };
   });
-  const proofs: ProofRecord[] = SEED_PROOFS.map((p) => ({ ...p, createdAt: now }));
+  const proofs: ProofRecord[] = SEED_PROOFS.map((p) => {
+    const m = matrices.find((x) => x.id === p.matrixId);
+    return {
+      ...p,
+      createdAt: now,
+      // 样张快照取登记当时字模的字面（种子数据中字模自始即为此身份）
+      snapshot: m ? { character: m.character, code: m.code, font: m.font } : undefined,
+    };
+  });
   return { matrices, cases, defects, proofs };
 }
 

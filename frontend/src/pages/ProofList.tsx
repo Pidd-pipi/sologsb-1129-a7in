@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import CorrectionTag from '../components/common/CorrectionTag';
 import EmptyState from '../components/common/EmptyState';
 import { DRAFT_KEYS, useLocalDraft } from '../hooks/useLocalDraft';
 import { useMatrixStore } from '../stores/matrixStore';
@@ -12,8 +13,10 @@ import {
   validateProofInput,
   type ClarityLevel,
   type ProofInput,
+  type ProofRecord,
   type ProofTargetKind,
 } from '../types/proof';
+import { isProofDiff, proofSnapshotOf } from '../utils/correction';
 import { dash, formatDate, suggestSampleNo, todayStr } from '../utils/format';
 
 interface ProofFormState {
@@ -75,6 +78,13 @@ export default function ProofList() {
       (p) => p.sampleNo.toLowerCase().includes(q) || p.targetRef.toLowerCase().includes(q),
     );
   }, [proofs, sampleQuery]);
+
+  /** 试印样张留存字面与现行档案的差异（无快照时不判定） */
+  const proofDiff = (p: ProofRecord): { before: string; after: string } | null => {
+    const m = matrices.find((x) => x.id === p.matrixId);
+    if (!m || !isProofDiff(p, m)) return null;
+    return { before: proofSnapshotOf(p).character, after: m.character };
+  };
 
   const clarityStats = useMemo(() => {
     const out: Record<string, number> = {};
@@ -393,25 +403,33 @@ export default function ProofList() {
             />
           ) : (
             <ul className="space-y-2" data-testid="sample-search-result">
-              {traced.map((p) => (
-                <li key={p.id} className="rounded border border-paper-line bg-paper/40 px-3 py-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-song text-sm text-ink">{p.sampleNo}</span>
-                    <span className="mt-chip">{p.clarity}</span>
-                    <span className="text-ink-mute">{formatDate(p.proofDate)}</span>
-                    <span className="text-ink-soft">
-                      {p.pressureKg} kg · {p.ink} · 印次 {p.impressions}
-                    </span>
-                    {p.matrixId ? (
-                      <Link className="mt-btn mt-btn-ghost" to={`/matrices/${p.matrixId}`} data-testid={`trace-matrix-${p.id}`}>
-                        回溯字模
-                      </Link>
-                    ) : (
-                      <span className="text-ink-mute">整盘试印，未关联单枚字模</span>
-                    )}
-                  </div>
-                </li>
-              ))}
+              {traced.map((p) => {
+                const diff = proofDiff(p);
+                return (
+                  <li key={p.id} className="rounded border border-paper-line bg-paper/40 px-3 py-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-song text-sm text-ink">{p.sampleNo}</span>
+                      <span className="mt-chip">{p.clarity}</span>
+                      <span className="text-ink-mute">{formatDate(p.proofDate)}</span>
+                      <span className="text-ink-soft">
+                        {p.pressureKg} kg · {p.ink} · 印次 {p.impressions}
+                      </span>
+                      {diff ? <CorrectionTag before={diff.before} after={diff.after} /> : null}
+                      {p.matrixId ? (
+                        <Link className="mt-btn mt-btn-ghost" to={`/matrices/${p.matrixId}`} data-testid={`trace-matrix-${p.id}`}>
+                          回溯字模
+                        </Link>
+                      ) : (
+                        <span className="text-ink-mute">整盘试印，未关联单枚字模</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-[11px] text-ink-mute">
+                      当时字面：
+                      <span className="font-song text-ink-soft">{proofSnapshotOf(p).character || '—'}</span>
+                    </p>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
@@ -443,45 +461,61 @@ export default function ProofList() {
                   </td>
                 </tr>
               ) : (
-                sortedProofs.map((p) => (
-                  <tr key={p.id} data-testid={`proof-row-${p.id}`}>
-                    <td className="mt-td font-song text-ink">{p.sampleNo}</td>
-                    <td className="mt-td">
-                      {p.targetKind} · {p.targetRef}
-                    </td>
-                    <td className="mt-td">
-                      {p.pressureKg} kg · {p.ink}
-                    </td>
-                    <td className="mt-td">{p.impressions}</td>
-                    <td className="mt-td">
-                      <span
-                        className={`mt-chip ${
-                          p.clarity === '清晰'
-                            ? 'border-jade/40 text-jade'
-                            : p.clarity === '偏淡'
-                              ? 'border-brass/40 text-brass'
-                              : 'border-seal/40 text-seal'
-                        }`}
-                      >
-                        {p.clarity}
-                      </span>
-                    </td>
-                    <td className="mt-td">{formatDate(p.proofDate)}</td>
-                    <td className="mt-td">
-                      {p.matrixId ? (
-                        <Link
-                          className="text-seal hover:underline"
-                          to={`/matrices/${p.matrixId}`}
-                          data-testid={`proof-matrix-link-${p.id}`}
+                sortedProofs.map((p) => {
+                  const diff = proofDiff(p);
+                  return (
+                    <tr key={p.id} data-testid={`proof-row-${p.id}`}>
+                      <td className="mt-td font-song text-ink">
+                        {p.sampleNo}
+                        {diff ? (
+                          <div className="mt-1">
+                            <CorrectionTag before={diff.before} after={diff.after} />
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="mt-td">
+                        {p.targetKind} · {p.targetRef}
+                        {p.matrixId ? (
+                          <div className="text-[11px] text-ink-mute">
+                            当时字面：
+                            <span className="font-song">{proofSnapshotOf(p).character || '—'}</span>
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="mt-td">
+                        {p.pressureKg} kg · {p.ink}
+                      </td>
+                      <td className="mt-td">{p.impressions}</td>
+                      <td className="mt-td">
+                        <span
+                          className={`mt-chip ${
+                            p.clarity === '清晰'
+                              ? 'border-jade/40 text-jade'
+                              : p.clarity === '偏淡'
+                                ? 'border-brass/40 text-brass'
+                                : 'border-seal/40 text-seal'
+                          }`}
                         >
-                          查看字模
-                        </Link>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                  </tr>
-                ))
+                          {p.clarity}
+                        </span>
+                      </td>
+                      <td className="mt-td">{formatDate(p.proofDate)}</td>
+                      <td className="mt-td">
+                        {p.matrixId ? (
+                          <Link
+                            className="text-seal hover:underline"
+                            to={`/matrices/${p.matrixId}`}
+                            data-testid={`proof-matrix-link-${p.id}`}
+                          >
+                            查看字模
+                          </Link>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
